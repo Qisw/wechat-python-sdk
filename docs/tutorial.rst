@@ -185,6 +185,87 @@
         # 现在直接将 response 变量内容直接作为 HTTP Response 响应微信服务器即可，此处为了演示返回内容，直接将响应进行输出
         print response
 
+官方接口-在线翻译微信公众号demo， 结合Flask框架
+-------------------------
+依赖: flask requests wechat-sdk
+::
+    # coding=utf-8
+    
+    import sys
+    import threading
+    reload(sys)
+    sys.setdefaultencoding('utf-8')  # 设定默认编码为utf-8 ， 兼容python2.x
+    from flask import Flask
+    from flask import request
+    import time
+    import json
+    import requests
+    from wechat_sdk import WechatBasic
+    
+    app = Flask(__name__)
+    
+    token = '你在微信公众号设置的token字符串'
+    appid = '你的公众号appid'
+    appsecret = '你的公众号appsecret'
+    @app.route('/', methods=['GET', 'POST'])
+    def index():
+        signature = request.args['signature']   # 获取signature
+        timestamp = request.args['timestamp']   # 获取timestamp
+        nonce = request.args['nonce']           # 获取nonce
+        wechat = WechatBasic(token=token, appid=appid, appsecret=appsecret)
+        if request.method == 'GET':         # 与微信服务器验证时请求method为GET
+            if wechat.check_signature(signature=signature, timestamp=timestamp, nonce=nonce):  # 进行与微信服务器的验证
+                return request.args['echostr']          # 验证成功，根据微信开发接口要求原样返回echostr
+            else:
+                return ""                               # 验证失败，返回空字符串
+        elif request.method == 'POST':
+            wechat.parse_data(request.data)     
+            message = wechat.get_message()      # 解析用户消息
+            response = None
+            if message.type == 'text':      # 判断消息类型
+                if message.content == 'wechat':
+                    response = wechat.response_text('^_^')
+                else:
+                    request_word = message.content  # 获取要翻译的词组
+                    try:
+                        translate_result = request_translate(request_word)  # 进行翻译，并获取翻译结果
+                        response = wechat.response_text(translate_result)    # 将结果转换成微信接口定义的格式
+                    except Exception:
+                        response = wechat.response_text('Something wrong')   # 不能正确翻译
+            else:
+                response = wechat.response_text('词组格式错误') 
+        return response     # 向微信服务器返回结果
+    
+    def request_translate(word):
+        """
+        :@word str 要翻译的词组
+        :@retrun str 翻译结果
+        翻译使用有道提供的接口，可以免费申请
+        """
+        # param为传送给有道翻译api的数据， key和keyform在申请成功后的邮件内容中获取
+        param = {'keyfrom' : 'easytranslate', 'key':'申请到的有道api的key参数值', 'type':'data', 'doctype':'json', 'version':'1.1', 'q':word}
+        url = r'http://fanyi.youdao.com/openapi.do'  # 有道翻译api url地址
+        resp = requests.get(url, params=param)       # 利用requests进行请求
+        tmp_str = resp.json()['query'] + ": \n"
+        resp_json = resp.json()['basic']            # 获取返回的翻译结果
+        for key in resp_json.keys():
+            # 取出想要的数据，因为有道翻译api返回的翻译结果有很多
+            # 这里只取其中感兴趣的一部分，并将结果拼接存放在tmp_str中
+            if "phonetic" in key:
+                continue
+            tmp = key + ": "
+            if isinstance(resp_json[key], list):
+                for i in resp_json[key]:
+                    tmp += "".join(i) + "\n"
+            else:
+                tmp += resp_json[key] + "\n"
+            tmp_str += tmp
+        tmp_str += r'<a href="http://fanyi.baidu.com/?aldtype=16047#en/zh/{}">read more</a>'.format(word)
+        return tmp_str  # 返回翻译结果字符串
+    
+    if __name__ == "__main__":
+        app.run(debug=True, port=5000, host='0.0.0.0')  # 运行服务
+
 
 非官方接口 - 基本用法
 -------------------------
